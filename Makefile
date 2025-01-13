@@ -1,4 +1,4 @@
-.PHONY: go
+.PHONY: it
 
-go:
+it:
 	@node index.js
