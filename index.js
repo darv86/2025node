@@ -1,10 +1,9 @@
-import { stat, watch, writeFile, appendFile, readFile, unlink, open } from 'node:fs/promises';
+import { stat, watch, open } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { Buffer } from 'node:buffer';
 import { CommandHandler } from './commandHandler.js';
 
 const filePath = resolve('task.txt');
-console.log(filePath);
 
 const controller = new AbortController();
 const { signal } = controller;
@@ -23,6 +22,11 @@ const watcher = watch(filePath, { signal });
 		const buff = Buffer.alloc(buffSize);
 		const contentBuff = (await fileHandle.read({ buffer: buff, position: 0 })).buffer;
 		const content = contentBuff.toString();
+		if (!content.length) {
+			console.error('the task file is empty');
+			controller.abort();
+			return;
+		}
 		try {
 			const command = new CommandHandler(content);
 			command.exec();

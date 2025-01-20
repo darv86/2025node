@@ -80,7 +80,7 @@ export class CommandHandler {
 		const msg = this.#parseMsg();
 		if (!msg) return console.log('invalid message input');
 		await appendFile(this.filePath, msg);
-		console.log('content added to the file');
+		console.log('the message added to the file');
 	}
 
 	async exec() {
