@@ -1,6 +1,8 @@
 import { stat, writeFile, appendFile, unlink, rename } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
+const toBool = [() => true, () => false];
+
 export class CommandHandler {
 	#commands = ['create', 'rename', 'delete', 'append'];
 
@@ -22,6 +24,7 @@ export class CommandHandler {
 	/** @returns {string | undefined} */
 	#parseMsg() {
 		const keyword = 'message';
+		// todo 1
 		if (!this.content.includes(keyword)) return undefined;
 		const start = this.content.indexOf(keyword) + keyword.length + 1;
 		const msg = this.content.substring(start);
@@ -31,6 +34,7 @@ export class CommandHandler {
 	/** @returns {string | undefined} */
 	#parseFilename() {
 		const keyword = 'file:';
+		// todo 1
 		if (!this.content.includes(keyword)) return undefined;
 		const start = this.content.indexOf(keyword) + keyword.length;
 		const end = this.content.indexOf(' ', start);
@@ -38,25 +42,28 @@ export class CommandHandler {
 		return filename;
 	}
 
-	async exists() {
-		try {
-			const stats = await stat(this.filePath);
-			return true;
-		} catch {
-			return false;
-		}
-	}
+	// async exists() {
+	// 	try {
+	// 		const stats = await stat(this.filePath);
+	// 		return true;
+	// 	} catch {
+	// 		return false;
+	// 	}
+	// }
 
 	async create() {
-		const fileExists = await this.exists();
+		// const fileExists = await this.exists();
+		const fileExists = await stat(this.filePath).then(...toBool);
 		if (fileExists) return console.log('the file already exists');
+		// todo 1
 		const msg = this.#parseMsg() || '';
 		await writeFile(this.filePath, msg);
 		console.log('file created');
 	}
 
 	async rename() {
-		const fileExists = await this.exists();
+		// const fileExists = await this.exists();
+		const fileExists = await stat(this.filePath).then(...toBool);
 		if (!fileExists) return console.log('the file does not exist');
 		const keyword = 'file:' + this.filename + ' to ';
 		const start = this.content.indexOf(keyword) + keyword.length;
@@ -67,15 +74,17 @@ export class CommandHandler {
 		console.log('file renamed');
 	}
 
-	async delete(content) {
-		const fileExists = await this.exists();
+	async delete() {
+		// const fileExists = await this.exists();
+		const fileExists = await stat(this.filePath).then(...toBool);
 		if (!fileExists) return console.log('the file does not exist');
 		await unlink(this.filePath);
 		console.log('file deleted');
 	}
 
 	async append() {
-		const fileExists = await this.exists();
+		// const fileExists = await this.exists();
+		const fileExists = await stat(this.filePath).then(...toBool);
 		if (!fileExists) return console.log('the file does not exist');
 		const msg = this.#parseMsg();
 		if (!msg) return console.log('invalid message input');
