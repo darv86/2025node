@@ -1,59 +1,80 @@
 import { open } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
-const sourcePath = resolve('./test.txt');
+const srcPath = resolve('./book.txt');
+const destPath = resolve('./book-m.txt');
+
+// solves buffer splitting issue while streaming
+const textFormatter = (chunk, leftover) => {
+	const text = chunk.toString();
+	let textFormatted = text;
+	let leftoverUpd = leftover;
+	if (leftoverUpd.includes('\r') && text.startsWith('\n')) {
+		textFormatted = leftoverUpd + text.slice(1);
+	}
+	leftoverUpd = '';
+	if (text.endsWith('\r')) {
+		leftoverUpd = '\r';
+		textFormatted = text.slice(0, -1);
+	}
+	const textNonEol = textFormatted.replace(/\r\n|\r|\n/g, ' ');
+	return { textNonEol, leftoverUpd };
+};
 
 (async () => {
-	const source = await open(sourcePath, 'w');
-	const rStream = source.createReadStream();
-	const wStream = source.createWriteStream();
+	const src = await open(srcPath, 'r');
+	const rStream = src.createReadStream();
+	const dest = await open(destPath, 'w');
+	const wStream = dest.createWriteStream();
 
-	// represent the size of the internal buffer,
-	// where data stores before write to output (fs, http resp...)
-	const rBuffSize = rStream.readableHighWaterMark;
-	const wBuffSize = wStream.writableHighWaterMark;
-	// these values can be equal, depends on node version and os:
-	// v22.13.1 65536 bytes for both;
-	// v20.18.3 rBuffSize: 65536, wBuffSize: 16384.
-	console.log({ rBuffSize, wBuffSize });
+	let leftover = '';
 
-	// shows how many bytes is written to the internal buffer (wBuffSize)
-	console.log('before write:', wStream.writableLength);
-	const buffToWrite = Buffer.from('text to write in buffer');
-	wStream.write(buffToWrite);
-	console.log('after write:', wStream.writableLength);
-
-	// wStream.write returns false, if
-	// wStream.writableHighWaterMark === wStream.writableLength
-	// so the stream needs some time to empty this internal buffer
-	// by writing that data to output before write to the stream again
-	// otherwise, returns true
-	let canWriteMore = wStream.write(buffToWrite);
-	console.log({ canWriteMore });
-	// writes bigBuffer to the stream with exactly size as needed to have
-	// wStream.writableHighWaterMark === wStream.writableLength
-	const bigBuff = Buffer.alloc(wBuffSize - wStream.writableLength);
-	canWriteMore = wStream.write(bigBuff);
-	console.log({ canWriteMore });
-
-	// never allow wStream.writableHighWaterMark < wStream.writableLength
-	// before write to the stream
-
-	// when the stream has emptied the internal buffer
-	// and ready to write to that buffer again, it emits 'drain' event
-	wStream.on('drain', async () => {
-		console.log('ready to make safe write');
-		// writes last buff (exact size as internal buffer) to the stream
-		// and ends this stream (output will have size of two writableHighWaterMark)
-		const size = wStream.writableHighWaterMark;
-		const buff = Buffer.alloc(size);
-		// when writings are done, the stream should be ended
-		// also .end method emits 'finish' event
-		wStream.end(buff);
+	rStream.on('data', chunk => {
+		const { textNonEol, leftoverUpd } = textFormatter(chunk, leftover);
+		leftover = leftoverUpd;
+		if (!wStream.write(textNonEol)) rStream.pause();
+	});
+	// when readable stream is done, emits 'end' event, but
+	// when writable stream is done, emits 'finish' event
+	rStream.on('end', async () => {
+		await src.close();
+		// writable stream needs to be ended explicitly;
+		// readable stream ends automatically,
+		// when reaches the end of file (EOF)
+		wStream.end('--- MODIFIED BY NODE.JS ---');
+		console.log('writes are done');
 	});
 
+	wStream.on('drain', () => rStream.resume());
 	wStream.on('finish', async () => {
-		console.log('the stream is finished');
-		source.close();
+		await dest.close();
+		// checking if destination file has eol symbols
+		const fh = await open(destPath);
+		const stream = fh.createReadStream();
+		// readable stream is async iterable,
+		// so for..await loop can be used instead of 'data' event listener
+		for await (const chunk of stream) {
+			const text = chunk.toString();
+			if (text.includes('\r') || text.includes('\n')) {
+				console.log('the symbol found');
+			}
+		}
 	});
+	wStream.on('close', () => {
+		console.log('closed');
+	});
+
+	// ends the stream (last chunk can be written),
+	// emits 'finish' and 'close events
+	// wStream.end();
+	// immediately close the stream and clears all pending writes,
+	// emits 'error' and 'close' events
+	// wStream.destroy();
+	// closes underlying file descriptor (in this case: dest),
+	// ends the stream and can clears all pending writes
+	// emits 'close' event
+	// wStream.close();
+
+	rStream.on('error', err => console.error('Read Stream Error:', err));
+	wStream.on('error', err => console.error('Write Stream Error:', err));
 })();
