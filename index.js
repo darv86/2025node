@@ -23,58 +23,36 @@ const textFormatter = (chunk, leftover) => {
 
 (async () => {
 	const src = await open(srcPath, 'r');
-	const rStream = src.createReadStream();
 	const dest = await open(destPath, 'w');
-	const wStream = dest.createWriteStream();
 
 	let leftover = '';
 
-	rStream.on('data', chunk => {
-		const { textNonEol, leftoverUpd } = textFormatter(chunk, leftover);
+	// do not use in production!!!
+	// own way to implement stream without stream itself
+	// seems like, there is a issue without proper write ending for big files,
+	// but native stream does not have this issue, coz there is stream.end()
+	while (true) {
+		const { bytesRead, buffer } = await src.read();
+		if (!bytesRead) break;
+		const buff = buffer.subarray(0, bytesRead);
+		const { textNonEol, leftoverUpd } = textFormatter(buff, leftover);
 		leftover = leftoverUpd;
-		if (!wStream.write(textNonEol)) rStream.pause();
-	});
-	// when readable stream is done, emits 'end' event, but
-	// when writable stream is done, emits 'finish' event
-	rStream.on('end', async () => {
-		await src.close();
-		// writable stream needs to be ended explicitly;
-		// readable stream ends automatically,
-		// when reaches the end of file (EOF)
-		wStream.end('--- MODIFIED BY NODE.JS ---');
-		console.log('writes are done');
-	});
+		await dest.write(textNonEol);
+	}
+	// ensure correct last write, if any data remains
+	if (leftover) {
+		await dest.write(leftover);
+	}
+	await src.close();
+	await dest.close();
 
-	wStream.on('drain', () => rStream.resume());
-	wStream.on('finish', async () => {
-		await dest.close();
-		// checking if destination file has eol symbols
-		const fh = await open(destPath);
-		const stream = fh.createReadStream();
-		// readable stream is async iterable,
-		// so for..await loop can be used instead of 'data' event listener
-		for await (const chunk of stream) {
-			const text = chunk.toString();
-			if (text.includes('\r') || text.includes('\n')) {
-				console.log('the symbol found');
-			}
+	const fd = await open(destPath);
+	const stream = fd.createReadStream();
+	for await (const chunk of stream) {
+		const text = chunk.toString();
+		if (text.includes('\r') || text.includes('\n')) {
+			console.log('the symbol found');
 		}
-	});
-	wStream.on('close', () => {
-		console.log('closed');
-	});
-
-	// ends the stream (last chunk can be written),
-	// emits 'finish' and 'close events
-	// wStream.end();
-	// immediately close the stream and clears all pending writes,
-	// emits 'error' and 'close' events
-	// wStream.destroy();
-	// closes underlying file descriptor (in this case: dest),
-	// ends the stream and can clears all pending writes
-	// emits 'close' event
-	// wStream.close();
-
-	rStream.on('error', err => console.error('Read Stream Error:', err));
-	wStream.on('error', err => console.error('Write Stream Error:', err));
+	}
+	await fd.close();
 })();
